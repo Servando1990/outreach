@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+.env
+.venv/
+automation_state.db
+
+Find_all_boutique_placement_agents_capital_results_*.csv
+Find_all_boutique_placement_agents_capital_results_*_summary.txt
+Identify_Boutique_Capital_Placement_Agents-*-results.csv
