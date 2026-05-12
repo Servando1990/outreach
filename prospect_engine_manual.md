@@ -141,7 +141,9 @@ uv run prospect-engine prospecting-review --generator core
 Cheap smoke test:
 
 ```bash
-uv run prospect-engine prospecting-review --generator preview
+uv run prospect-engine prospecting-review \
+  --generator preview \
+  --max-reviewed-per-list 5
 ```
 
 Custom ICP config:

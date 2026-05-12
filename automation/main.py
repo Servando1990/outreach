@@ -151,6 +151,7 @@ def run_prospecting_review(
     config_path: str | None = None,
     output_dir: str = "exports/prospecting_reviews",
     generator: str = "core",
+    max_reviewed_per_list: int | None = None,
 ) -> list[dict[str, Any]]:
     runtime = build_runtime()
     settings: Settings = runtime["settings"]
@@ -160,6 +161,7 @@ def run_prospecting_review(
         configs=load_prospecting_configs(config_path),
         output_dir=output_dir,
         generator=generator,
+        max_reviewed_per_list=max_reviewed_per_list,
     )
     return [summary.model_dump() for summary in summaries]
 
@@ -300,6 +302,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="core",
         help="FindAll generator to use. Use preview for a cheap smoke test.",
     )
+    prospecting_review.add_argument(
+        "--max-reviewed-per-list",
+        type=int,
+        default=None,
+        help="Stop after reviewing this many candidates per list, even if fewer than target_count qualify.",
+    )
 
     prospecting_sync = subparsers.add_parser(
         "prospecting-sync-approved",
@@ -349,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
                 config_path=args.config,
                 output_dir=args.output_dir,
                 generator=args.generator,
+                max_reviewed_per_list=args.max_reviewed_per_list,
             )
         )
         return 0

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -61,17 +62,30 @@ class ProspectingWorkflowService:
         configs: list[ProspectingListConfig],
         output_dir: str | Path,
         generator: str = "core",
+        max_reviewed_per_list: int | None = None,
     ) -> list[ProspectingRunSummary]:
         target_dir = Path(output_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         summaries: list[ProspectingRunSummary] = []
         for config in configs:
-            reviewed = self.build_list(config=config, generator=generator)
+            reviewed = self.build_list(
+                config=config,
+                generator=generator,
+                max_reviewed=max_reviewed_per_list,
+            )
             summaries.append(self.write_review(config=config, prospects=reviewed, output_dir=target_dir))
         return summaries
 
-    def build_list(self, *, config: ProspectingListConfig, generator: str) -> list[QualifiedProspect]:
+    def build_list(
+        self,
+        *,
+        config: ProspectingListConfig,
+        generator: str,
+        max_reviewed: int | None = None,
+    ) -> list[QualifiedProspect]:
+        print(f"[{config.name}] discovering candidates", file=sys.stderr, flush=True)
         candidates = self.discover_candidates(config=config, generator=generator)
+        print(f"[{config.name}] discovered {len(candidates)} candidates", file=sys.stderr, flush=True)
         reviewed: list[QualifiedProspect] = []
         seen_domains: set[str] = set()
         seen_names: set[str] = set()
@@ -85,15 +99,33 @@ class ProspectingWorkflowService:
             dedupe_key = domain or name_key
             if not name or dedupe_key in seen_domains or name_key in seen_names:
                 continue
+            if max_reviewed is not None and len(reviewed) >= max_reviewed:
+                break
             seen_domains.add(dedupe_key)
             if name_key:
                 seen_names.add(name_key)
 
+            print(
+                f"[{config.name}] researching {len(reviewed) + 1}: {name}",
+                file=sys.stderr,
+                flush=True,
+            )
             profile = self.research_candidate(config=config, candidate=candidate)
             qualified = self.qualify_profile(config=config, profile=profile)
             reviewed.append(qualified)
             if qualified.qualified:
                 qualified_count += 1
+                print(
+                    f"[{config.name}] qualified {qualified_count}/{config.target_count}: {profile.company_name}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+            else:
+                print(
+                    f"[{config.name}] rejected {profile.company_name}: {', '.join(qualified.rejection_reasons)}",
+                    file=sys.stderr,
+                    flush=True,
+                )
             if qualified_count >= config.target_count:
                 break
 
