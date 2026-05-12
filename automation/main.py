@@ -150,9 +150,16 @@ def run_prospecting_review(
     *,
     config_path: str | None = None,
     output_dir: str = "exports/prospecting_reviews",
-    generator: str = "core",
+    generator: str = "preview",
     max_reviewed_per_list: int | None = None,
+    resume: bool = False,
+    confirm_paid_run: bool = False,
 ) -> list[dict[str, Any]]:
+    if generator in {"core", "pro"} and not confirm_paid_run:
+        raise RuntimeError(
+            f"--generator {generator} can consume more Parallel credits. "
+            "Rerun with --confirm-paid-run after a small preview smoke test."
+        )
     runtime = build_runtime()
     settings: Settings = runtime["settings"]
     settings.require_parallel()
@@ -162,6 +169,7 @@ def run_prospecting_review(
         output_dir=output_dir,
         generator=generator,
         max_reviewed_per_list=max_reviewed_per_list,
+        resume=resume,
     )
     return [summary.model_dump() for summary in summaries]
 
@@ -299,14 +307,24 @@ def build_parser() -> argparse.ArgumentParser:
     prospecting_review.add_argument(
         "--generator",
         choices=["preview", "base", "core", "pro"],
-        default="core",
-        help="FindAll generator to use. Use preview for a cheap smoke test.",
+        default="preview",
+        help="FindAll generator to use. Defaults to preview for cheap smoke tests.",
     )
     prospecting_review.add_argument(
         "--max-reviewed-per-list",
         type=int,
         default=None,
         help="Stop after reviewing this many candidates per list, even if fewer than target_count qualify.",
+    )
+    prospecting_review.add_argument(
+        "--resume",
+        action="store_true",
+        help="Reuse saved candidates/review files in the output directory and continue from the last reviewed candidate.",
+    )
+    prospecting_review.add_argument(
+        "--confirm-paid-run",
+        action="store_true",
+        help="Required when using --generator core or --generator pro.",
     )
 
     prospecting_sync = subparsers.add_parser(
@@ -358,6 +376,8 @@ def main(argv: list[str] | None = None) -> int:
                 output_dir=args.output_dir,
                 generator=args.generator,
                 max_reviewed_per_list=args.max_reviewed_per_list,
+                resume=args.resume,
+                confirm_paid_run=args.confirm_paid_run,
             )
         )
         return 0

@@ -61,19 +61,29 @@ class ProspectingWorkflowService:
         *,
         configs: list[ProspectingListConfig],
         output_dir: str | Path,
-        generator: str = "core",
+        generator: str = "preview",
         max_reviewed_per_list: int | None = None,
+        resume: bool = False,
     ) -> list[ProspectingRunSummary]:
         target_dir = Path(output_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         summaries: list[ProspectingRunSummary] = []
         for config in configs:
-            reviewed = self.build_list(
+            reviewed, candidate_count = self.build_list(
                 config=config,
                 generator=generator,
                 max_reviewed=max_reviewed_per_list,
+                output_dir=target_dir,
+                resume=resume,
             )
-            summaries.append(self.write_review(config=config, prospects=reviewed, output_dir=target_dir))
+            summaries.append(
+                self.write_review(
+                    config=config,
+                    prospects=reviewed,
+                    output_dir=target_dir,
+                    candidate_count=candidate_count,
+                )
+            )
         return summaries
 
     def build_list(
@@ -82,28 +92,42 @@ class ProspectingWorkflowService:
         config: ProspectingListConfig,
         generator: str,
         max_reviewed: int | None = None,
-    ) -> list[QualifiedProspect]:
-        print(f"[{config.name}] discovering candidates", file=sys.stderr, flush=True)
-        candidates = self.discover_candidates(config=config, generator=generator)
+        output_dir: Path,
+        resume: bool = False,
+    ) -> tuple[list[QualifiedProspect], int]:
+        candidates_path = output_dir / f"{config.name}_candidates.json"
+        partial_jsonl_path = output_dir / f"{config.name}_review_partial.jsonl"
+        review_json_path = output_dir / f"{config.name}_review.json"
+
+        if resume and candidates_path.exists():
+            candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
+            print(f"[{config.name}] loaded {len(candidates)} checkpointed candidates", file=sys.stderr, flush=True)
+        else:
+            if not resume and partial_jsonl_path.exists():
+                partial_jsonl_path.unlink()
+            print(f"[{config.name}] discovering candidates", file=sys.stderr, flush=True)
+            candidates = self.discover_candidates(config=config, generator=generator)
+            candidates_path.write_text(json.dumps(candidates, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
+            print(f"[{config.name}] saved candidates: {candidates_path}", file=sys.stderr, flush=True)
+
         print(f"[{config.name}] discovered {len(candidates)} candidates", file=sys.stderr, flush=True)
-        reviewed: list[QualifiedProspect] = []
+        reviewed = self._load_review_checkpoint(review_json_path) if resume else []
         seen_domains: set[str] = set()
         seen_names: set[str] = set()
-        qualified_count = 0
+        for prospect in reviewed:
+            self._mark_seen(prospect.profile.company_name, prospect.profile.website, seen_domains, seen_names)
+        qualified_count = sum(1 for prospect in reviewed if prospect.qualified)
+        if reviewed:
+            print(f"[{config.name}] resuming from {len(reviewed)} reviewed candidates", file=sys.stderr, flush=True)
 
         for candidate in candidates:
             name = (candidate.get("name") or "").strip()
             url = (candidate.get("url") or "").strip()
-            domain = extract_domain(url) or ""
-            name_key = re.sub(r"\W+", " ", name.lower()).strip()
-            dedupe_key = domain or name_key
-            if not name or dedupe_key in seen_domains or name_key in seen_names:
+            if not name or self._already_seen(name, url, seen_domains, seen_names):
                 continue
             if max_reviewed is not None and len(reviewed) >= max_reviewed:
                 break
-            seen_domains.add(dedupe_key)
-            if name_key:
-                seen_names.add(name_key)
+            self._mark_seen(name, url, seen_domains, seen_names)
 
             print(
                 f"[{config.name}] researching {len(reviewed) + 1}: {name}",
@@ -126,10 +150,17 @@ class ProspectingWorkflowService:
                     file=sys.stderr,
                     flush=True,
                 )
+            self._append_review_checkpoint(partial_jsonl_path, qualified)
+            self.write_review(
+                config=config,
+                prospects=reviewed,
+                output_dir=output_dir,
+                candidate_count=len(candidates),
+            )
             if qualified_count >= config.target_count:
                 break
 
-        return reviewed
+        return reviewed, len(candidates)
 
     def discover_candidates(self, *, config: ProspectingListConfig, generator: str) -> list[dict[str, Any]]:
         objective = self._discovery_objective(config)
@@ -265,6 +296,7 @@ class ProspectingWorkflowService:
         config: ProspectingListConfig,
         prospects: list[QualifiedProspect],
         output_dir: Path,
+        candidate_count: int | None = None,
     ) -> ProspectingRunSummary:
         json_path = output_dir / f"{config.name}_review.json"
         csv_path = output_dir / f"{config.name}_review.csv"
@@ -325,7 +357,7 @@ class ProspectingWorkflowService:
             list_name=config.name,
             display_name=config.display_name,
             target_count=config.target_count,
-            generated_candidates=len(prospects),
+            generated_candidates=candidate_count if candidate_count is not None else len(prospects),
             reviewed_candidates=len(prospects),
             qualified_count=qualified_count,
             exported_count=min(qualified_count, config.target_count),
@@ -424,6 +456,43 @@ Extracted page evidence:
 
     def _truncate_list(self, values: list[str], *, limit: int, chars: int) -> list[str]:
         return [value[:chars] for value in values[:limit] if value]
+
+    def _load_review_checkpoint(self, review_json_path: Path) -> list[QualifiedProspect]:
+        if not review_json_path.exists():
+            return []
+        payload = json.loads(review_json_path.read_text(encoding="utf-8"))
+        return [QualifiedProspect.model_validate(item) for item in payload]
+
+    def _append_review_checkpoint(self, partial_jsonl_path: Path, prospect: QualifiedProspect) -> None:
+        with partial_jsonl_path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(prospect.model_dump(), ensure_ascii=True) + "\n")
+
+    def _already_seen(
+        self,
+        name: str,
+        url: str | None,
+        seen_domains: set[str],
+        seen_names: set[str],
+    ) -> bool:
+        domain = extract_domain(url) or ""
+        name_key = re.sub(r"\W+", " ", name.lower()).strip()
+        dedupe_key = domain or name_key
+        return bool(dedupe_key in seen_domains or name_key in seen_names)
+
+    def _mark_seen(
+        self,
+        name: str,
+        url: str | None,
+        seen_domains: set[str],
+        seen_names: set[str],
+    ) -> None:
+        domain = extract_domain(url) or ""
+        name_key = re.sub(r"\W+", " ", name.lower()).strip()
+        dedupe_key = domain or name_key
+        if dedupe_key:
+            seen_domains.add(dedupe_key)
+        if name_key:
+            seen_names.add(name_key)
 
     def _rank_contacts(self, contacts: list[ProspectContact]) -> list[ProspectContact]:
         ranked: list[ProspectContact] = []

@@ -132,16 +132,19 @@ What happens:
 
 ### Build Prospecting Review Lists
 
-Default review run for the two placement-agent lists:
-
-```bash
-uv run prospect-engine prospecting-review --generator core
-```
-
-Cheap smoke test:
+Default cheap smoke test for the two placement-agent lists:
 
 ```bash
 uv run prospect-engine prospecting-review \
+  --config prospecting_lists.example.json \
+  --max-reviewed-per-list 1
+```
+
+Small preview batch:
+
+```bash
+uv run prospect-engine prospecting-review \
+  --config prospecting_lists.example.json \
   --generator preview \
   --max-reviewed-per-list 5
 ```
@@ -152,7 +155,20 @@ Custom ICP config:
 uv run prospect-engine prospecting-review \
   --config prospecting_lists.example.json \
   --output-dir exports/prospecting_reviews \
-  --generator core
+  --generator core \
+  --max-reviewed-per-list 25 \
+  --confirm-paid-run
+```
+
+Resume from saved candidates/review files:
+
+```bash
+uv run prospect-engine prospecting-review \
+  --config prospecting_lists.example.json \
+  --output-dir exports/prospecting_reviews \
+  --generator preview \
+  --max-reviewed-per-list 10 \
+  --resume
 ```
 
 What happens:
@@ -162,7 +178,9 @@ What happens:
 - Extract pulls relevant evidence from those pages
 - Task turns the evidence into strict structured fields
 - Python applies hard filters for firm type, geography, headcount, active status, and contact completeness
-- Review CSV/JSON files are written locally
+- candidates are saved immediately as `*_candidates.json`
+- every reviewed prospect is checkpointed in `*_review_partial.jsonl`
+- review CSV/JSON files are rewritten after each candidate
 - Nothing is written to Lightfield
 
 The default lists require every approved prospect to have a decision-maker contact with both email and LinkedIn.
