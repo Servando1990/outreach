@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import time
 from typing import Any, TypeVar
 
-import httpx
+from parallel import Parallel
 from pydantic import BaseModel
 
 from automation.config import Settings
@@ -15,65 +14,12 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 class ParallelTaskClient:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-
-    def _headers(self) -> dict[str, str]:
         self.settings.require_parallel()
-        return {
-            "Content-Type": "application/json",
-            "x-api-key": self.settings.parallel_api_key or "",
-        }
-
-    def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        with httpx.Client(timeout=self.settings.parallel_timeout_seconds) as client:
-            response = client.request(
-                method,
-                f"{self.settings.parallel_base_url}{path}",
-                headers=self._headers(),
-                **kwargs,
-            )
-            response.raise_for_status()
-            return response.json()
-
-    def create_run(
-        self,
-        *,
-        input_data: str,
-        output_schema: dict[str, Any],
-        metadata: dict[str, Any] | None = None,
-        webhook: dict[str, Any] | None = None,
-        processor: str | None = None,
-    ) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "input": input_data,
-            "processor": processor or self.settings.parallel_processor,
-            "task_spec": {
-                "output_schema": {
-                    "type": "json",
-                    "json_schema": output_schema,
-                }
-            },
-            "metadata": metadata or {},
-        }
-        if webhook:
-            payload["webhook"] = webhook
-        return self._request("POST", "/v1/tasks/runs", json=payload)
-
-    def get_result(self, run_id: str) -> dict[str, Any]:
-        deadline = time.time() + self.settings.parallel_result_timeout_seconds
-        last_status = "running"
-        while time.time() < deadline:
-            result = self._request("GET", f"/v1/tasks/runs/{run_id}/result")
-            output = result.get("output")
-            if output:
-                return result
-
-            run_data = result.get("run") or result.get("data") or {}
-            last_status = run_data.get("status", last_status)
-            if last_status in {"failed", "canceled"}:
-                raise RuntimeError(f"Parallel task run {run_id} ended with status={last_status}.")
-            time.sleep(self.settings.parallel_poll_interval_seconds)
-
-        raise TimeoutError(f"Timed out waiting for Parallel task result for run_id={run_id}.")
+        self.client = Parallel(
+            api_key=self.settings.parallel_api_key,
+            base_url=self.settings.parallel_base_url,
+            timeout=self.settings.parallel_timeout_seconds,
+        )
 
     def run_structured(
         self,
@@ -81,23 +27,31 @@ class ParallelTaskClient:
         input_data: str,
         output_model: type[ModelT],
         metadata: dict[str, Any] | None = None,
-        webhook: dict[str, Any] | None = None,
     ) -> tuple[ModelT, dict[str, Any]]:
-        run = self.create_run(
-            input_data=input_data,
-            output_schema=output_model.model_json_schema(),
-            metadata=metadata,
-            webhook=webhook,
+        result = self.client.task_run.execute(
+            input=input_data,
+            processor=self.settings.parallel_processor,
+            metadata=self._metadata(metadata),
+            output=output_model,
+            timeout=self.settings.parallel_result_timeout_seconds,
         )
-        run_id = run.get("run_id") or run.get("run", {}).get("run_id")
-        if not run_id:
-            raise RuntimeError("Parallel create_run did not return a run_id.")
-        result = self.get_result(run_id)
-        output = result.get("output") or {}
-        content = output.get("content")
-        if content is None:
-            raise RuntimeError(f"Parallel task run {run_id} returned no structured content.")
-        return output_model.model_validate(content), result
+        parsed = result.output.parsed
+        if parsed is None:
+            raise RuntimeError("Parallel task run returned no parsed structured output.")
+        return parsed, result.to_dict()
+
+    def _metadata(self, metadata: dict[str, Any] | None) -> dict[str, str | float | bool]:
+        normalized: dict[str, str | float | bool] = {}
+        for key, value in (metadata or {}).items():
+            if value is None:
+                continue
+            if isinstance(value, bool | float):
+                normalized[key] = value
+            elif isinstance(value, int):
+                normalized[key] = float(value)
+            else:
+                normalized[key] = str(value)[:512]
+        return normalized
 
     def discover_candidates(self, *, query: str, limit: int) -> DiscoveryResults:
         prompt = f"""

@@ -13,6 +13,7 @@ It supports 3 operator modes:
 1. `discover`: search for new firms and contacts from a plain-English query
 2. `backfill`: enrich an existing CSV if you already have one
 3. `monitor-create`: keep selected accounts fresh after they are in Lightfield
+4. `prospecting-review`: build ICP-qualified review files before anything is sent to Lightfield
 
 The CSV is optional. The default front door is `discover`.
 
@@ -26,6 +27,7 @@ Parallel is the research layer.
 
 - `discover` uses Parallel Task to find new target firms from your query
 - `backfill` uses Parallel Task to turn seed firms into structured profiles
+- `prospecting-review` uses FindAll/Search for discovery, Extract for evidence gathering, and Task for strict synthesis
 - `monitor-create` uses Parallel Monitor to watch already-tracked accounts for new changes
 
 Lightfield is the CRM system of record. Python handles scoring, dedupe, and upsert logic.
@@ -127,6 +129,57 @@ What happens:
 - Python scores outbound fit
 - Lightfield gets clean `Accounts` and `Contacts`
 - SQLite stores identity mappings to prevent duplicates
+
+### Build Prospecting Review Lists
+
+Default review run for the two placement-agent lists:
+
+```bash
+uv run prospect-engine prospecting-review --generator core
+```
+
+Cheap smoke test:
+
+```bash
+uv run prospect-engine prospecting-review --generator preview
+```
+
+Custom ICP config:
+
+```bash
+uv run prospect-engine prospecting-review \
+  --config prospecting_lists.example.json \
+  --output-dir exports/prospecting_reviews \
+  --generator core
+```
+
+What happens:
+
+- FindAll discovers a broad candidate pool for each list
+- Search gathers supporting pages for each candidate
+- Extract pulls relevant evidence from those pages
+- Task turns the evidence into strict structured fields
+- Python applies hard filters for firm type, geography, headcount, active status, and contact completeness
+- Review CSV/JSON files are written locally
+- Nothing is written to Lightfield
+
+The default lists require every approved prospect to have a decision-maker contact with both email and LinkedIn.
+
+After review, sync one approved JSON file in dry-run mode:
+
+```bash
+uv run prospect-engine prospecting-sync-approved \
+  --review-json exports/prospecting_reviews/placement_agents_europe_london_review.json \
+  --dry-run
+```
+
+Write approved prospects to Lightfield only after review:
+
+```bash
+uv run prospect-engine prospecting-sync-approved \
+  --review-json exports/prospecting_reviews/placement_agents_europe_london_review.json \
+  --live
+```
 
 ### Backfill A CSV
 
