@@ -154,7 +154,8 @@ class ProspectingWorkflowService:
                 f"{name} partner principal managing director email LinkedIn",
             ],
         )
-        urls = self._candidate_urls(candidate_url, search)
+        compact_search = self._compact_search(search)
+        urls = self._candidate_urls(candidate_url, compact_search)
         extract = self.research_client.extract(
             urls=urls,
             objective=(
@@ -164,7 +165,12 @@ class ProspectingWorkflowService:
             ),
             session_id=search.get("session_id"),
         )
-        prompt = self._research_prompt(config=config, candidate=candidate, search=search, extract=extract)
+        prompt = self._research_prompt(
+            config=config,
+            candidate=candidate,
+            search=compact_search,
+            extract=self._compact_extract(extract),
+        )
         profile = self.research_client.synthesize_structured(
             prompt=prompt,
             output_model=ProspectResearchProfile,
@@ -350,6 +356,42 @@ Extracted page evidence:
                 continue
             urls.append(url)
         return unique_strings(urls)[:10]
+
+    def _compact_search(self, search: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "search_id": search.get("search_id"),
+            "session_id": search.get("session_id"),
+            "results": [
+                {
+                    "title": result.get("title"),
+                    "url": result.get("url"),
+                    "excerpts": self._truncate_list(result.get("excerpts") or [], limit=2, chars=700),
+                }
+                for result in (search.get("results") or [])[:8]
+            ],
+        }
+
+    def _compact_extract(self, extract: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "results": [
+                {
+                    "title": result.get("title"),
+                    "url": result.get("url"),
+                    "excerpts": self._truncate_list(result.get("excerpts") or [], limit=3, chars=900),
+                }
+                for result in (extract.get("results") or [])[:8]
+            ],
+            "errors": [
+                {
+                    "url": error.get("url"),
+                    "message": error.get("message") or error.get("error"),
+                }
+                for error in (extract.get("errors") or [])[:3]
+            ],
+        }
+
+    def _truncate_list(self, values: list[str], *, limit: int, chars: int) -> list[str]:
+        return [value[:chars] for value in values[:limit] if value]
 
     def _rank_contacts(self, contacts: list[ProspectContact]) -> list[ProspectContact]:
         ranked: list[ProspectContact] = []
