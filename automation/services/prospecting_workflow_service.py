@@ -6,6 +6,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from automation.clients.parallel_research_client import ParallelResearchClient
 from automation.models.prospecting import (
@@ -115,10 +116,15 @@ class ProspectingWorkflowService:
 
         print(f"[{config.name}] discovered {len(candidates)} candidates", file=sys.stderr, flush=True)
         reviewed = self._load_review_checkpoint(review_json_path) if resume else []
-        seen_domains: set[str] = set()
+        seen_keys: set[str] = set()
         seen_names: set[str] = set()
         for prospect in reviewed:
-            self._mark_seen(prospect.profile.company_name, prospect.profile.website, seen_domains, seen_names)
+            self._mark_seen(
+                prospect.profile.company_name,
+                prospect.profile.candidate_url or prospect.profile.website,
+                seen_keys,
+                seen_names,
+            )
         qualified_count = sum(1 for prospect in reviewed if prospect.qualified)
         if reviewed:
             print(f"[{config.name}] resuming from {len(reviewed)} reviewed candidates", file=sys.stderr, flush=True)
@@ -126,11 +132,11 @@ class ProspectingWorkflowService:
         for candidate in candidates:
             name = (candidate.get("name") or "").strip()
             url = (candidate.get("url") or "").strip()
-            if not name or self._already_seen(name, url, seen_domains, seen_names):
+            if not name or self._already_seen(name, url, seen_keys, seen_names):
                 continue
             if max_reviewed is not None and len(reviewed) >= max_reviewed:
                 break
-            self._mark_seen(name, url, seen_domains, seen_names)
+            self._mark_seen(name, url, seen_keys, seen_names)
 
             print(
                 f"[{config.name}] researching {len(reviewed) + 1}: {name}",
@@ -482,28 +488,40 @@ Extracted page evidence:
         self,
         name: str,
         url: str | None,
-        seen_domains: set[str],
+        seen_keys: set[str],
         seen_names: set[str],
     ) -> bool:
-        domain = extract_domain(url) or ""
+        key = self._candidate_identity_key(url)
         name_key = re.sub(r"\W+", " ", name.lower()).strip()
-        dedupe_key = domain or name_key
-        return bool(dedupe_key in seen_domains or name_key in seen_names)
+        dedupe_key = key or name_key
+        return bool(dedupe_key in seen_keys or name_key in seen_names)
 
     def _mark_seen(
         self,
         name: str,
         url: str | None,
-        seen_domains: set[str],
+        seen_keys: set[str],
         seen_names: set[str],
     ) -> None:
-        domain = extract_domain(url) or ""
+        key = self._candidate_identity_key(url)
         name_key = re.sub(r"\W+", " ", name.lower()).strip()
-        dedupe_key = domain or name_key
+        dedupe_key = key or name_key
         if dedupe_key:
-            seen_domains.add(dedupe_key)
+            seen_keys.add(dedupe_key)
         if name_key:
             seen_names.add(name_key)
+
+    def _candidate_identity_key(self, url: str | None) -> str:
+        domain = extract_domain(url) or ""
+        if not url:
+            return domain
+        parsed_url = url if "://" in url else f"https://{url}"
+        parsed = urlparse(parsed_url)
+        host = parsed.netloc.lower().removeprefix("www.")
+        path = re.sub(r"/+", "/", parsed.path.lower()).strip("/")
+        if host.endswith("linkedin.com") and path:
+            return f"{host}/{path}"
+        return domain
 
     def _company_names_match(self, returned_name: str | None, candidate_name: str | None) -> bool:
         returned = self._name_tokens(returned_name)
