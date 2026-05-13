@@ -308,7 +308,23 @@ uv run prospect-engine prospecting-review \
   --confirm-paid-run
 ```
 
-## 13. The Short Version
+## 13. If You Change The ICP Config
+
+If you edit `prospecting_lists.example.json`, run the next search without `--resume`.
+
+That forces fresh candidate discovery with the new ICP.
+
+```bash
+uv run prospect-engine prospecting-review \
+  --config prospecting_lists.example.json \
+  --max-reviewed-per-list 1
+```
+
+Use `--resume` only after you are happy with the candidate pool.
+
+The workflow also does a cheap prefilter before paid per-company research. If a candidate description looks like a VC fund, PE investor, asset manager, wealth manager, recruiter, or generic M&A advisor, and it does not explicitly mention placement/fundraising/capital raising, it gets skipped before Search/Extract/Task spend.
+
+## 14. The Short Version
 
 ```bash
 # 1. tiny test

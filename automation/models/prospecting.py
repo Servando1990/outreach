@@ -14,6 +14,35 @@ class ProspectingListConfig(BaseModel):
     max_headcount: int = 10
     require_contact_email: bool = True
     require_contact_linkedin: bool = True
+    required_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "placement agent",
+            "fund placement",
+            "fundraising",
+            "capital raising",
+            "private placement",
+            "third party marketer",
+            "distribution",
+        ]
+    )
+    excluded_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "venture capital",
+            "private equity firm",
+            "private equity fund",
+            "growth equity",
+            "investment manager",
+            "asset manager",
+            "wealth manager",
+            "family office",
+            "recruitment",
+            "recruiter",
+            "executive search",
+            "m&a advisory",
+            "mergers and acquisitions",
+            "corporate finance advisory",
+        ]
+    )
     allowed_firm_types: list[str] = Field(
         default_factory=lambda: [
             "placement agent",

@@ -134,6 +134,31 @@ class ProspectingWorkflowService:
             url = (candidate.get("url") or "").strip()
             if not name or self._already_seen(name, url, seen_keys, seen_names):
                 continue
+            skip_reason = self._candidate_prefilter_rejection(config=config, candidate=candidate)
+            if skip_reason:
+                self._mark_seen(name, url, seen_keys, seen_names)
+                profile = self._prefilter_rejected_profile(candidate=candidate, reason=skip_reason)
+                qualified = QualifiedProspect(
+                    list_name=config.name,
+                    qualified=False,
+                    rejection_reasons=[skip_reason],
+                    qualification_score=0,
+                    profile=profile,
+                    primary_contact=None,
+                    backup_contacts=[],
+                )
+                reviewed.append(qualified)
+                print(f"[{config.name}] skipped {name}: {skip_reason}", file=sys.stderr, flush=True)
+                self._append_review_checkpoint(partial_jsonl_path, qualified)
+                self.write_review(
+                    config=config,
+                    prospects=reviewed,
+                    output_dir=output_dir,
+                    candidate_count=len(candidates),
+                )
+                if max_reviewed is not None and len(reviewed) >= max_reviewed:
+                    break
+                continue
             if max_reviewed is not None and len(reviewed) >= max_reviewed:
                 break
             self._mark_seen(name, url, seen_keys, seen_names)
@@ -178,7 +203,10 @@ class ProspectingWorkflowService:
                 "name": "placement_agent_check",
                 "description": (
                     "Company must be a placement agent, fund placement agent, fundraising advisor, "
-                    "or private capital advisory firm that helps private funds, GPs, or sponsors raise capital."
+                    "third-party marketer, or private-placement advisory firm that helps private funds, "
+                    "GPs, or sponsors raise capital. Exclude firms whose primary business is investing "
+                    "their own capital, managing assets, venture capital, private equity investing, "
+                    "wealth management, recruitment, or general M&A advisory."
                 ),
             },
             {
@@ -382,8 +410,12 @@ class ProspectingWorkflowService:
         return (
             f"FindAll boutique placement agents in {config.geography}. "
             f"Only include firms with no more than {config.max_headcount} people. "
-            "They should help private funds, GPs, or sponsors raise capital through fund placement, "
-            "fundraising advisory, or private capital advisory work. Prefer active firms with official websites. "
+            "They must help private funds, GPs, or sponsors raise third-party capital through fund placement, "
+            "fundraising advisory, private placement, third-party marketing, or fund distribution work. "
+            "Exclude venture capital firms, private equity investors, investment managers, asset managers, "
+            "wealth managers, family offices, recruiters, executive search firms, and general M&A advisors "
+            "unless their public materials explicitly say they provide fund placement or capital raising services. "
+            "Prefer active firms with official websites. "
             "The final list must support decision-maker outreach to founders, partners, principals, managers, "
             "or technology leaders where possible."
         )
@@ -473,6 +505,50 @@ Extracted page evidence:
 
     def _truncate_list(self, values: list[str], *, limit: int, chars: int) -> list[str]:
         return [value[:chars] for value in values[:limit] if value]
+
+    def _candidate_prefilter_rejection(
+        self,
+        *,
+        config: ProspectingListConfig,
+        candidate: dict[str, Any],
+    ) -> str | None:
+        text = " ".join(
+            str(candidate.get(key) or "")
+            for key in ("name", "description", "url")
+        ).lower()
+        required_match = self._keyword_match(text, config.required_keywords)
+        excluded_match = self._keyword_match(text, config.excluded_keywords)
+        if excluded_match and not required_match:
+            return f"prefilter_excluded_keyword:{excluded_match}"
+        if not required_match:
+            return "prefilter_missing_placement_agent_signal"
+        return None
+
+    def _keyword_match(self, text: str, keywords: list[str]) -> str | None:
+        for keyword in keywords:
+            if keyword.lower() in text:
+                return keyword
+        return None
+
+    def _prefilter_rejected_profile(self, *, candidate: dict[str, Any], reason: str) -> ProspectResearchProfile:
+        name = candidate.get("name") or "Unknown company"
+        url = candidate.get("url")
+        return ProspectResearchProfile(
+            candidate_name=name,
+            candidate_url=url,
+            company_name=name,
+            website=url,
+            is_placement_agent=False,
+            is_boutique=None,
+            is_active=None,
+            source_urls=unique_strings([url]),
+            placement_agent_evidence={
+                "value": None,
+                "reasoning": f"Skipped before paid research: {reason}",
+                "confidence": "low",
+                "citations": [],
+            },
+        )
 
     def _load_review_checkpoint(self, review_json_path: Path) -> list[QualifiedProspect]:
         if not review_json_path.exists():
