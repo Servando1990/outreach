@@ -98,13 +98,16 @@ class ProspectingWorkflowService:
         candidates_path = output_dir / f"{config.name}_candidates.json"
         partial_jsonl_path = output_dir / f"{config.name}_review_partial.jsonl"
         review_json_path = output_dir / f"{config.name}_review.json"
+        review_csv_path = output_dir / f"{config.name}_review.csv"
 
         if resume and candidates_path.exists():
             candidates = json.loads(candidates_path.read_text(encoding="utf-8"))
             print(f"[{config.name}] loaded {len(candidates)} checkpointed candidates", file=sys.stderr, flush=True)
         else:
-            if not resume and partial_jsonl_path.exists():
-                partial_jsonl_path.unlink()
+            if not resume:
+                for stale_path in (candidates_path, partial_jsonl_path, review_json_path, review_csv_path):
+                    if stale_path.exists():
+                        stale_path.unlink()
             print(f"[{config.name}] discovering candidates", file=sys.stderr, flush=True)
             candidates = self.discover_candidates(config=config, generator=generator)
             candidates_path.write_text(json.dumps(candidates, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
@@ -242,6 +245,8 @@ class ProspectingWorkflowService:
         assert isinstance(profile, ProspectResearchProfile)
         if not profile.company_name:
             profile.company_name = name
+        profile.candidate_name = name
+        profile.candidate_url = candidate_url
         if not profile.website:
             profile.website = candidate_url
         profile.source_urls = unique_strings([*profile.source_urls, *urls])
@@ -255,6 +260,8 @@ class ProspectingWorkflowService:
         profile: ProspectResearchProfile,
     ) -> QualifiedProspect:
         rejection_reasons: list[str] = []
+        if profile.candidate_name and not self._company_names_match(profile.company_name, profile.candidate_name):
+            rejection_reasons.append("candidate_identity_mismatch")
         if profile.is_placement_agent is not True:
             rejection_reasons.append("not_verified_placement_agent")
         if profile.is_boutique is not True:
@@ -394,6 +401,10 @@ List:
 - required contact fields: email={config.require_contact_email}, linkedin={config.require_contact_linkedin}
 
 Rules:
+- Return a profile for the candidate company only.
+- Set company_name to the exact candidate name unless the official site proves a minor legal-name variant.
+- Do not return a market map, list, bundle, or alternative company.
+- If the candidate itself does not match the ICP, keep company_name as the candidate and set the relevant booleans to false.
 - Be conservative. If evidence is weak, set booleans to false or null and explain why.
 - Do not infer headcount above/below the limit without evidence.
 - Prefer official website, team page, LinkedIn company page, regulator/directory pages, and credible news.
@@ -493,6 +504,35 @@ Extracted page evidence:
             seen_domains.add(dedupe_key)
         if name_key:
             seen_names.add(name_key)
+
+    def _company_names_match(self, returned_name: str | None, candidate_name: str | None) -> bool:
+        returned = self._name_tokens(returned_name)
+        candidate = self._name_tokens(candidate_name)
+        if not returned or not candidate:
+            return False
+        if returned == candidate:
+            return True
+        return candidate.issubset(returned) or returned.issubset(candidate)
+
+    def _name_tokens(self, value: str | None) -> set[str]:
+        stopwords = {
+            "a",
+            "advisers",
+            "advisors",
+            "capital",
+            "company",
+            "group",
+            "inc",
+            "limited",
+            "llc",
+            "llp",
+            "ltd",
+            "management",
+            "partners",
+            "the",
+        }
+        normalized = re.sub(r"[^a-z0-9]+", " ", (value or "").lower())
+        return {token for token in normalized.split() if token and token not in stopwords}
 
     def _rank_contacts(self, contacts: list[ProspectContact]) -> list[ProspectContact]:
         ranked: list[ProspectContact] = []

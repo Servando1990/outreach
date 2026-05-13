@@ -64,6 +64,8 @@ class ProspectContact(BaseModel):
 
 
 class ProspectResearchProfile(BaseModel):
+    candidate_name: str | None = None
+    candidate_url: str | None = None
     company_name: str
     website: str | None = None
     linkedin_company_url: str | None = None
