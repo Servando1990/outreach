@@ -201,15 +201,12 @@ class ProspectingWorkflowService:
         objective = self._discovery_objective(config)
         conditions = [
             {
-                "name": "placement_agent_check",
+                "name": "target_firm_check",
                 "description": (
-                    "Company must be a placement agent, fund placement agent, fundraising advisor, "
-                    "third-party marketer, or private-placement advisory firm that helps private funds, "
-                    "GPs, or sponsors raise capital. The public profile must include an explicit signal "
-                    "such as placement agent, fund placement, private placement, third-party fund marketer, "
-                    "fund marketing, private funds placement, or capital raising in private-fund/LP/GP context. "
-                    "Exclude firms whose primary business is investing their own capital, managing assets, "
-                    "venture capital, private equity investing, wealth management, recruitment, or general M&A advisory."
+                    f"Company must match this target firm type: {config.target_firm_type}. "
+                    f"It must {config.target_activity_description}. "
+                    "The public profile must include explicit positive signals from the configured keywords. "
+                    f"Exclude {config.excluded_firm_description}."
                 ),
             },
             {
@@ -248,8 +245,8 @@ class ProspectingWorkflowService:
         candidate_website = self._candidate_website_url(candidate)
         website_domain = extract_domain(candidate_website)
         search_queries = [
-            f"{name} official website placement agent team",
-            f"{name} LinkedIn company 2-10 employees placement agent",
+            f"{name} official website {config.target_firm_type} team",
+            f"{name} LinkedIn company 2-10 employees {config.target_firm_type}",
             f"{name} partner principal managing director email LinkedIn",
             f"{name} contact email partner principal LinkedIn",
         ]
@@ -257,12 +254,12 @@ class ProspectingWorkflowService:
             search_queries.extend(
                 [
                     f"site:{website_domain} {name} team partner principal email",
-                    f"site:{website_domain} {name} placement agent fundraising contact",
+                    f"site:{website_domain} {name} {config.target_firm_type} contact",
                 ]
             )
         search = self.research_client.search(
             objective=(
-                f"Find primary-source evidence that {name} is a boutique placement agent in {config.geography}; "
+                f"Find primary-source evidence that {name} matches {config.target_firm_type} in {config.geography}; "
                 f"find headcount <= {config.max_headcount}; find decision makers, principals, managers, "
                 "or technology leaders with both email and LinkedIn URLs. Prefer the official website over "
                 "third-party profile pages when both are available."
@@ -274,8 +271,8 @@ class ProspectingWorkflowService:
         extract = self.research_client.extract(
             urls=urls,
             objective=(
-                "Extract only evidence relevant to prospect qualification: firm type, placement-agent/fundraising "
-                f"services, offices or geography in {config.geography}, team size/headcount <= {config.max_headcount}, "
+                "Extract only evidence relevant to prospect qualification: firm type, target-firm activity, "
+                f"offices or geography in {config.geography}, team size/headcount <= {config.max_headcount}, "
                 "active status, and named decision makers/Principals/Managers/technology leaders with emails and LinkedIn URLs."
             ),
             session_id=search.get("session_id"),
@@ -314,7 +311,7 @@ class ProspectingWorkflowService:
         if profile.candidate_name and not self._company_names_match(profile.company_name, profile.candidate_name):
             rejection_reasons.append("candidate_identity_mismatch")
         if profile.is_placement_agent is not True:
-            rejection_reasons.append("not_verified_placement_agent")
+            rejection_reasons.append(config.target_verification_rejection_reason)
         if profile.is_boutique is not True:
             rejection_reasons.append("not_verified_boutique")
         if profile.is_active is False:
@@ -433,15 +430,11 @@ class ProspectingWorkflowService:
 
     def _discovery_objective(self, config: ProspectingListConfig) -> str:
         return (
-            f"FindAll boutique placement agents in {config.geography}. "
+            f"FindAll companies matching this target firm type in {config.geography}: {config.target_firm_type}. "
             f"Only include firms with no more than {config.max_headcount} people. "
-            "They must explicitly help private funds, GPs, or sponsors raise third-party capital through fund placement, "
-            "private placement, third-party fund marketing, private funds placement, or fund distribution work. "
-            "Do not include a firm just because it says financial advisory, investment management, funding, "
-            "financing, investor relations, or capital raising without private-fund/LP/GP context. "
-            "Exclude venture capital firms, private equity investors, investment managers, asset managers, "
-            "wealth managers, family offices, recruiters, executive search firms, and general M&A advisors "
-            "unless their public materials explicitly say they provide fund placement or capital raising services. "
+            f"They must {config.target_activity_description}. "
+            "Do not include a firm just because it uses adjacent or generic financial-services language. "
+            f"Exclude {config.excluded_firm_description}. "
             "Prefer active firms with official websites and return the official website URL when known. "
             "The final list must support decision-maker outreach to founders, partners, principals, managers, "
             "or technology leaders where possible."
@@ -462,7 +455,8 @@ List:
 - name: {config.name}
 - geography: {config.geography}
 - max headcount: {config.max_headcount}
-- required firm type: boutique placement agent / fund placement agent / fundraising advisor / private capital advisory
+- required firm type: {config.target_firm_type}
+- target activity: {config.target_activity_description}
 - required contact fields: email={config.require_contact_email}, linkedin={config.require_contact_linkedin}
 
 Rules:
@@ -471,6 +465,7 @@ Rules:
 - Do not return a market map, list, bundle, or alternative company.
 - If the candidate itself does not match the ICP, keep company_name as the candidate and set the relevant booleans to false.
 - Be conservative. If evidence is weak, set booleans to false or null and explain why.
+- Treat the `is_placement_agent` output field as a legacy "matches required firm type" boolean.
 - Do not infer headcount above/below the limit without evidence.
 - Prefer official website, team page, LinkedIn company page, regulator/directory pages, and credible news.
 - Contact candidates must be real people. Generic inboxes are not decision makers.
@@ -583,7 +578,7 @@ Extracted page evidence:
         if excluded_match and not strong_match:
             return f"prefilter_excluded_keyword:{excluded_match}"
         if not strong_match and not contextual_match:
-            return "prefilter_missing_placement_agent_signal"
+            return config.missing_signal_rejection_reason
         return None
 
     def _keyword_match(self, text: str, keywords: list[str]) -> str | None:

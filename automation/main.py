@@ -257,7 +257,7 @@ def _qualified_prospect_to_profile(prospect: QualifiedProspect, *, include_conta
         outbound_fit_bucket="high" if prospect.qualification_score >= 80 else "medium",
         outbound_fit_reason=", ".join(
             [
-                profile.placement_agent_evidence.reasoning or "qualified placement agent",
+                profile.placement_agent_evidence.reasoning or "qualified target firm",
                 profile.headcount_evidence.reasoning or "boutique headcount verified",
             ]
         ),

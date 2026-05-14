@@ -15,6 +15,19 @@ class ProspectingListConfig(BaseModel):
     require_contact_email: bool = True
     require_contact_linkedin: bool = True
     require_complete_contact_for_qualification: bool = False
+    target_firm_type: str = (
+        "boutique placement agent / fund placement agent / fundraising advisor / private capital advisory"
+    )
+    target_activity_description: str = (
+        "helps private funds, GPs, or sponsors raise third-party capital through fund placement, "
+        "private placement, third-party fund marketing, private funds placement, or fund distribution work"
+    )
+    excluded_firm_description: str = (
+        "firms whose primary business is investing their own capital, managing assets, venture capital, "
+        "private equity investing, wealth management, recruitment, or general M&A advisory"
+    )
+    target_verification_rejection_reason: str = "not_verified_placement_agent"
+    missing_signal_rejection_reason: str = "prefilter_missing_placement_agent_signal"
     required_keywords: list[str] = Field(
         default_factory=lambda: [
             "placement agent",
