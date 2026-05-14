@@ -18,11 +18,41 @@ class ProspectingListConfig(BaseModel):
         default_factory=lambda: [
             "placement agent",
             "fund placement",
+            "third party marketer",
+            "third-party marketer",
+            "third party fund marketer",
+            "third-party fund marketer",
+            "fund marketing",
+            "private funds placement",
+            "placement and advisory",
+        ]
+    )
+    contextual_keywords: list[str] = Field(
+        default_factory=lambda: [
             "fundraising",
             "capital raising",
-            "private placement",
-            "third party marketer",
             "distribution",
+            "asset raising",
+            "private placement",
+            "lp fundraising",
+            "investor relations",
+        ]
+    )
+    context_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "fund",
+            "funds",
+            "gp",
+            "gps",
+            "sponsor",
+            "sponsors",
+            "lp",
+            "lps",
+            "limited partners",
+            "private markets",
+            "alternative investment",
+            "alternative investments",
+            "alternatives sector",
         ]
     )
     excluded_keywords: list[str] = Field(
@@ -32,8 +62,11 @@ class ProspectingListConfig(BaseModel):
             "private equity fund",
             "growth equity",
             "investment manager",
+            "asset management",
             "asset manager",
             "wealth manager",
+            "investment bank",
+            "investment banking",
             "family office",
             "recruitment",
             "recruiter",

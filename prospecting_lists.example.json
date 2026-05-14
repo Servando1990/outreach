@@ -12,11 +12,37 @@
       "required_keywords": [
         "placement agent",
         "fund placement",
+        "third party marketer",
+        "third-party marketer",
+        "third party fund marketer",
+        "third-party fund marketer",
+        "fund marketing",
+        "private funds placement",
+        "placement and advisory"
+      ],
+      "contextual_keywords": [
         "fundraising",
         "capital raising",
+        "distribution",
+        "asset raising",
         "private placement",
-        "third party marketer",
-        "distribution"
+        "lp fundraising",
+        "investor relations"
+      ],
+      "context_keywords": [
+        "fund",
+        "funds",
+        "gp",
+        "gps",
+        "sponsor",
+        "sponsors",
+        "lp",
+        "lps",
+        "limited partners",
+        "private markets",
+        "alternative investment",
+        "alternative investments",
+        "alternatives sector"
       ],
       "excluded_keywords": [
         "venture capital",
@@ -24,8 +50,11 @@
         "private equity fund",
         "growth equity",
         "investment manager",
+        "asset management",
         "asset manager",
         "wealth manager",
+        "investment bank",
+        "investment banking",
         "family office",
         "recruitment",
         "recruiter",
@@ -47,11 +76,37 @@
       "required_keywords": [
         "placement agent",
         "fund placement",
+        "third party marketer",
+        "third-party marketer",
+        "third party fund marketer",
+        "third-party fund marketer",
+        "fund marketing",
+        "private funds placement",
+        "placement and advisory"
+      ],
+      "contextual_keywords": [
         "fundraising",
         "capital raising",
+        "distribution",
+        "asset raising",
         "private placement",
-        "third party marketer",
-        "distribution"
+        "lp fundraising",
+        "investor relations"
+      ],
+      "context_keywords": [
+        "fund",
+        "funds",
+        "gp",
+        "gps",
+        "sponsor",
+        "sponsors",
+        "lp",
+        "lps",
+        "limited partners",
+        "private markets",
+        "alternative investment",
+        "alternative investments",
+        "alternatives sector"
       ],
       "excluded_keywords": [
         "venture capital",
@@ -59,8 +114,11 @@
         "private equity fund",
         "growth equity",
         "investment manager",
+        "asset management",
         "asset manager",
         "wealth manager",
+        "investment bank",
+        "investment banking",
         "family office",
         "recruitment",
         "recruiter",

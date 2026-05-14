@@ -204,9 +204,11 @@ class ProspectingWorkflowService:
                 "description": (
                     "Company must be a placement agent, fund placement agent, fundraising advisor, "
                     "third-party marketer, or private-placement advisory firm that helps private funds, "
-                    "GPs, or sponsors raise capital. Exclude firms whose primary business is investing "
-                    "their own capital, managing assets, venture capital, private equity investing, "
-                    "wealth management, recruitment, or general M&A advisory."
+                    "GPs, or sponsors raise capital. The public profile must include an explicit signal "
+                    "such as placement agent, fund placement, private placement, third-party fund marketer, "
+                    "fund marketing, private funds placement, or capital raising in private-fund/LP/GP context. "
+                    "Exclude firms whose primary business is investing their own capital, managing assets, "
+                    "venture capital, private equity investing, wealth management, recruitment, or general M&A advisory."
                 ),
             },
             {
@@ -242,20 +244,32 @@ class ProspectingWorkflowService:
     def research_candidate(self, *, config: ProspectingListConfig, candidate: dict[str, Any]) -> ProspectResearchProfile:
         name = candidate.get("name") or "Unknown company"
         candidate_url = candidate.get("url")
+        candidate_website = self._candidate_website_url(candidate)
+        website_domain = extract_domain(candidate_website)
+        search_queries = [
+            f"{name} official website placement agent team",
+            f"{name} LinkedIn company 2-10 employees placement agent",
+            f"{name} partner principal managing director email LinkedIn",
+            f"{name} contact email partner principal LinkedIn",
+        ]
+        if website_domain:
+            search_queries.extend(
+                [
+                    f"site:{website_domain} {name} team partner principal email",
+                    f"site:{website_domain} {name} placement agent fundraising contact",
+                ]
+            )
         search = self.research_client.search(
             objective=(
                 f"Find primary-source evidence that {name} is a boutique placement agent in {config.geography}; "
                 f"find headcount <= {config.max_headcount}; find decision makers, principals, managers, "
-                "or technology leaders with both email and LinkedIn URLs."
+                "or technology leaders with both email and LinkedIn URLs. Prefer the official website over "
+                "third-party profile pages when both are available."
             ),
-            queries=[
-                f"{name} official website placement agent team",
-                f"{name} LinkedIn company 2-10 employees placement agent",
-                f"{name} partner principal managing director email LinkedIn",
-            ],
+            queries=search_queries,
         )
         compact_search = self._compact_search(search)
-        urls = self._candidate_urls(candidate_url, compact_search)
+        urls = self._candidate_urls(candidate_website or candidate_url, compact_search)
         extract = self.research_client.extract(
             urls=urls,
             objective=(
@@ -282,8 +296,8 @@ class ProspectingWorkflowService:
         profile.candidate_name = name
         profile.candidate_url = candidate_url
         if not profile.website:
-            profile.website = candidate_url
-        profile.source_urls = unique_strings([*profile.source_urls, *urls])
+            profile.website = candidate_website or candidate_url
+        profile.source_urls = unique_strings([candidate_url, candidate_website, *profile.source_urls, *urls])
         profile.contacts = self._rank_contacts(profile.contacts)
         return profile
 
@@ -410,12 +424,14 @@ class ProspectingWorkflowService:
         return (
             f"FindAll boutique placement agents in {config.geography}. "
             f"Only include firms with no more than {config.max_headcount} people. "
-            "They must help private funds, GPs, or sponsors raise third-party capital through fund placement, "
-            "fundraising advisory, private placement, third-party marketing, or fund distribution work. "
+            "They must explicitly help private funds, GPs, or sponsors raise third-party capital through fund placement, "
+            "private placement, third-party fund marketing, private funds placement, or fund distribution work. "
+            "Do not include a firm just because it says financial advisory, investment management, funding, "
+            "financing, investor relations, or capital raising without private-fund/LP/GP context. "
             "Exclude venture capital firms, private equity investors, investment managers, asset managers, "
             "wealth managers, family offices, recruiters, executive search firms, and general M&A advisors "
             "unless their public materials explicitly say they provide fund placement or capital raising services. "
-            "Prefer active firms with official websites. "
+            "Prefer active firms with official websites and return the official website URL when known. "
             "The final list must support decision-maker outreach to founders, partners, principals, managers, "
             "or technology leaders where possible."
         )
@@ -470,6 +486,21 @@ Extracted page evidence:
             urls.append(url)
         return unique_strings(urls)[:10]
 
+    def _candidate_website_url(self, candidate: dict[str, Any]) -> str | None:
+        for key in ("website", "website_url", "homepage_url"):
+            value = candidate.get(key)
+            if value:
+                return str(value).strip()
+        description = str(candidate.get("description") or "")
+        match = re.search(r"\bWebsite Url:\s*(https?://[^\s|]+)", description, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).rstrip(".,;")
+        url = str(candidate.get("url") or "").strip()
+        domain = extract_domain(url)
+        if domain and not domain.endswith("linkedin.com"):
+            return url
+        return None
+
     def _compact_search(self, search: dict[str, Any]) -> dict[str, Any]:
         return {
             "search_id": search.get("search_id"),
@@ -516,18 +547,27 @@ Extracted page evidence:
             str(candidate.get(key) or "")
             for key in ("name", "description", "url")
         ).lower()
-        required_match = self._keyword_match(text, config.required_keywords)
+        strong_match = self._keyword_match(text, config.required_keywords)
+        contextual_match = self._contextual_placement_signal_match(text, config)
         excluded_match = self._keyword_match(text, config.excluded_keywords)
-        if excluded_match and not required_match:
+        if excluded_match and not strong_match:
             return f"prefilter_excluded_keyword:{excluded_match}"
-        if not required_match:
+        if not strong_match and not contextual_match:
             return "prefilter_missing_placement_agent_signal"
         return None
 
     def _keyword_match(self, text: str, keywords: list[str]) -> str | None:
         for keyword in keywords:
-            if keyword.lower() in text:
+            pattern = rf"(?<![a-z0-9]){re.escape(keyword.lower())}(?![a-z0-9])"
+            if re.search(pattern, text):
                 return keyword
+        return None
+
+    def _contextual_placement_signal_match(self, text: str, config: ProspectingListConfig) -> str | None:
+        contextual_match = self._keyword_match(text, config.contextual_keywords)
+        context_match = self._keyword_match(text, config.context_keywords)
+        if contextual_match and context_match:
+            return contextual_match
         return None
 
     def _prefilter_rejected_profile(self, *, candidate: dict[str, Any], reason: str) -> ProspectResearchProfile:
