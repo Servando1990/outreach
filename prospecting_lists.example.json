@@ -9,6 +9,7 @@
       "max_headcount": 10,
       "require_contact_email": true,
       "require_contact_linkedin": true,
+      "require_complete_contact_for_qualification": false,
       "required_keywords": [
         "placement agent",
         "fund placement",
@@ -73,6 +74,7 @@
       "max_headcount": 10,
       "require_contact_email": true,
       "require_contact_linkedin": true,
+      "require_complete_contact_for_qualification": false,
       "required_keywords": [
         "placement agent",
         "fund placement",

@@ -142,6 +142,7 @@ class ProspectingWorkflowService:
                     list_name=config.name,
                     qualified=False,
                     rejection_reasons=[skip_reason],
+                    contact_status="needs_enrichment",
                     qualification_score=0,
                     profile=profile,
                     primary_contact=None,
@@ -309,6 +310,7 @@ class ProspectingWorkflowService:
         profile: ProspectResearchProfile,
     ) -> QualifiedProspect:
         rejection_reasons: list[str] = []
+        contact_rejection_reasons: list[str] = []
         if profile.candidate_name and not self._company_names_match(profile.company_name, profile.candidate_name):
             rejection_reasons.append("candidate_identity_mismatch")
         if profile.is_placement_agent is not True:
@@ -333,13 +335,17 @@ class ProspectingWorkflowService:
                 required_fields.append("email")
             if config.require_contact_linkedin:
                 required_fields.append("linkedin")
-            rejection_reasons.append(f"missing_complete_contact_with_{'_and_'.join(required_fields)}")
+            contact_rejection_reasons.append(f"missing_complete_contact_with_{'_and_'.join(required_fields)}")
+            if config.require_complete_contact_for_qualification:
+                rejection_reasons.extend(contact_rejection_reasons)
 
         score = self._qualification_score(profile=profile, has_complete_contact=bool(eligible_contacts))
         return QualifiedProspect(
             list_name=config.name,
             qualified=not rejection_reasons,
             rejection_reasons=rejection_reasons,
+            contact_status="complete" if eligible_contacts else "needs_enrichment",
+            contact_rejection_reasons=contact_rejection_reasons,
             qualification_score=score,
             profile=profile,
             primary_contact=eligible_contacts[0] if eligible_contacts else None,
@@ -362,6 +368,8 @@ class ProspectingWorkflowService:
         fieldnames = [
             "qualified",
             "rejection_reasons",
+            "contact_status",
+            "contact_rejection_reasons",
             "qualification_score",
             "account_name",
             "website",
@@ -389,6 +397,8 @@ class ProspectingWorkflowService:
                     {
                         "qualified": prospect.qualified,
                         "rejection_reasons": "; ".join(prospect.rejection_reasons),
+                        "contact_status": prospect.contact_status,
+                        "contact_rejection_reasons": "; ".join(prospect.contact_rejection_reasons),
                         "qualification_score": prospect.qualification_score,
                         "account_name": profile.company_name,
                         "website": profile.website or "",

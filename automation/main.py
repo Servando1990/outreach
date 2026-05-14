@@ -221,7 +221,7 @@ def run_prospecting_sync_approved(
 
 
 def _prospect_should_sync(prospect: QualifiedProspect, *, include_incomplete: bool, min_score: int) -> bool:
-    if prospect.qualified and prospect.primary_contact is not None:
+    if prospect.qualified:
         return prospect.qualification_score >= min_score
     if include_incomplete:
         return prospect.qualification_score >= min_score

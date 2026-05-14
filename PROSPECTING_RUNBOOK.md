@@ -228,11 +228,11 @@ A prospect is approved only if:
 - it is boutique
 - headcount is not above 10
 - it appears active
-- the selected contact has email
-- the selected contact has LinkedIn
+- contact status is tracked separately
 ```
 
-If any of those fail, the row is rejected and `rejection_reasons` explains why.
+If firm qualification fails, the row is rejected and `rejection_reasons` explains why.
+If only contact data is incomplete, the firm can still qualify as an account and `contact_status` becomes `needs_enrichment`.
 
 ## 10. Sync To Lightfield
 
@@ -243,6 +243,8 @@ Dry run first:
 ```bash
 uv run prospect-engine prospecting-sync-approved \
   --review-json exports/prospecting_reviews/placement_agents_europe_london_review.json \
+  --accounts-only \
+  --list-name "Placement Agents Europe London 2026-05-14" \
   --dry-run
 ```
 
@@ -251,6 +253,8 @@ If that looks good, live sync:
 ```bash
 uv run prospect-engine prospecting-sync-approved \
   --review-json exports/prospecting_reviews/placement_agents_europe_london_review.json \
+  --accounts-only \
+  --list-name "Placement Agents Europe London 2026-05-14" \
   --live
 ```
 
@@ -259,6 +263,8 @@ Repeat for NY:
 ```bash
 uv run prospect-engine prospecting-sync-approved \
   --review-json exports/prospecting_reviews/placement_agents_ny_review.json \
+  --accounts-only \
+  --list-name "Placement Agents NY 2026-05-14" \
   --dry-run
 ```
 
@@ -267,6 +273,8 @@ Then:
 ```bash
 uv run prospect-engine prospecting-sync-approved \
   --review-json exports/prospecting_reviews/placement_agents_ny_review.json \
+  --accounts-only \
+  --list-name "Placement Agents NY 2026-05-14" \
   --live
 ```
 
@@ -337,8 +345,8 @@ uv run prospect-engine prospecting-review --config prospecting_lists.example.jso
 uv run prospect-engine prospecting-review --config prospecting_lists.example.json --generator core --max-reviewed-per-list 25 --resume --confirm-paid-run
 
 # 4. dry-run sync Europe
-uv run prospect-engine prospecting-sync-approved --review-json exports/prospecting_reviews/placement_agents_europe_london_review.json --dry-run
+uv run prospect-engine prospecting-sync-approved --review-json exports/prospecting_reviews/placement_agents_europe_london_review.json --accounts-only --list-name "Placement Agents Europe London 2026-05-14" --dry-run
 
 # 5. live sync Europe
-uv run prospect-engine prospecting-sync-approved --review-json exports/prospecting_reviews/placement_agents_europe_london_review.json --live
+uv run prospect-engine prospecting-sync-approved --review-json exports/prospecting_reviews/placement_agents_europe_london_review.json --accounts-only --list-name "Placement Agents Europe London 2026-05-14" --live
 ```

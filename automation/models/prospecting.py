@@ -14,6 +14,7 @@ class ProspectingListConfig(BaseModel):
     max_headcount: int = 10
     require_contact_email: bool = True
     require_contact_linkedin: bool = True
+    require_complete_contact_for_qualification: bool = False
     required_keywords: list[str] = Field(
         default_factory=lambda: [
             "placement agent",
@@ -151,6 +152,8 @@ class QualifiedProspect(BaseModel):
     list_name: str
     qualified: bool
     rejection_reasons: list[str] = Field(default_factory=list)
+    contact_status: Literal["complete", "needs_enrichment"] = "needs_enrichment"
+    contact_rejection_reasons: list[str] = Field(default_factory=list)
     qualification_score: int = 0
     profile: ProspectResearchProfile
     primary_contact: ProspectContact | None = None
