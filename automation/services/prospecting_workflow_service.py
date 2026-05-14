@@ -640,13 +640,28 @@ Extracted page evidence:
         return domain
 
     def _company_names_match(self, returned_name: str | None, candidate_name: str | None) -> bool:
+        returned_compact_name = self._compact_name(returned_name)
+        candidate_compact_name = self._compact_name(candidate_name)
+        if returned_compact_name and candidate_compact_name:
+            shorter = min(len(returned_compact_name), len(candidate_compact_name))
+            if shorter >= 6 and (
+                returned_compact_name in candidate_compact_name
+                or candidate_compact_name in returned_compact_name
+            ):
+                return True
+
         returned = self._name_tokens(returned_name)
         candidate = self._name_tokens(candidate_name)
         if not returned or not candidate:
             return False
         if returned == candidate:
             return True
-        return candidate.issubset(returned) or returned.issubset(candidate)
+        if candidate.issubset(returned) or returned.issubset(candidate):
+            return True
+        return False
+
+    def _compact_name(self, value: str | None) -> str:
+        return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
 
     def _name_tokens(self, value: str | None) -> set[str]:
         stopwords = {
