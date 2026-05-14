@@ -178,6 +178,10 @@ def run_prospecting_sync_approved(
     *,
     review_json: str,
     dry_run: bool | None = None,
+    include_incomplete: bool = False,
+    min_score: int = 1,
+    accounts_only: bool = False,
+    list_name: str | None = None,
 ) -> list[dict[str, Any]]:
     settings = Settings.from_env()
     effective_dry_run = settings.effective_dry_run(dry_run)
@@ -194,22 +198,39 @@ def run_prospecting_sync_approved(
         for item in json.loads(Path(review_json).read_text(encoding="utf-8"))
     ]
     results = []
+    account_ids: list[str] = []
     for prospect in prospects:
-        if not prospect.qualified or prospect.primary_contact is None:
+        if not _prospect_should_sync(prospect, include_incomplete=include_incomplete, min_score=min_score):
             continue
-        profile = _qualified_prospect_to_profile(prospect)
+        profile = _qualified_prospect_to_profile(prospect, include_contacts=not accounts_only)
+        sync_result = sync_service.sync_profile(profile, dry_run=effective_dry_run)
+        if sync_result.account_id:
+            account_ids.append(sync_result.account_id)
+        results.append({"profile": profile.model_dump(), "sync": sync_result.model_dump()})
+    if list_name:
         results.append(
             {
-                "profile": profile.model_dump(),
-                "sync": sync_service.sync_profile(profile, dry_run=effective_dry_run).model_dump(),
+                "list": sync_service.sync_account_list(
+                    name=list_name,
+                    account_ids=account_ids,
+                    dry_run=effective_dry_run,
+                )
             }
         )
     return results
 
 
-def _qualified_prospect_to_profile(prospect: QualifiedProspect) -> ProspectProfile:
+def _prospect_should_sync(prospect: QualifiedProspect, *, include_incomplete: bool, min_score: int) -> bool:
+    if prospect.qualified and prospect.primary_contact is not None:
+        return prospect.qualification_score >= min_score
+    if include_incomplete:
+        return prospect.qualification_score >= min_score
+    return False
+
+
+def _qualified_prospect_to_profile(prospect: QualifiedProspect, *, include_contacts: bool = True) -> ProspectProfile:
     profile = prospect.profile
-    contacts = [prospect.primary_contact, *prospect.backup_contacts]
+    contacts = [prospect.primary_contact, *prospect.backup_contacts] if include_contacts else []
     return ProspectProfile(
         company_name=profile.company_name,
         website=profile.website,
@@ -332,6 +353,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="Sync approved prospects from a prospecting-review JSON file. Use --live to write to Lightfield.",
     )
     prospecting_sync.add_argument("--review-json", required=True, help="Review JSON file from prospecting-review.")
+    prospecting_sync.add_argument(
+        "--include-incomplete",
+        action="store_true",
+        help="Also sync high-scoring prospects that failed only review gates such as contact completeness.",
+    )
+    prospecting_sync.add_argument(
+        "--min-score",
+        type=int,
+        default=1,
+        help="Minimum qualification score to sync. Use with --include-incomplete for account-only prospect lists.",
+    )
+    prospecting_sync.add_argument(
+        "--accounts-only",
+        action="store_true",
+        help="Sync only accounts, not contacts.",
+    )
+    prospecting_sync.add_argument(
+        "--list-name",
+        default=None,
+        help="Create or update an isolated Lightfield account list and add synced accounts to it.",
+    )
     prospecting_sync_group = prospecting_sync.add_mutually_exclusive_group()
     prospecting_sync_group.add_argument("--dry-run", action="store_true", help="Preview without writing to Lightfield.")
     prospecting_sync_group.add_argument("--live", action="store_true", help="Write approved prospects to Lightfield.")
@@ -386,6 +428,10 @@ def main(argv: list[str] | None = None) -> int:
             run_prospecting_sync_approved(
                 review_json=args.review_json,
                 dry_run=_resolve_dry_run(settings, args),
+                include_incomplete=args.include_incomplete,
+                min_score=args.min_score,
+                accounts_only=args.accounts_only,
+                list_name=args.list_name,
             )
         )
         return 0

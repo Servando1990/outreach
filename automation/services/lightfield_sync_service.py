@@ -8,7 +8,6 @@ from automation.models.prospect import DecisionMaker, ProspectProfile
 from automation.utils import (
     company_external_key,
     extract_domain,
-    linkedin_handle,
     normalize_company_name,
     normalize_email,
     split_full_name,
@@ -90,6 +89,50 @@ class LightfieldSyncService:
         self.store.record_sync_run(result.mode, external_key, "success", result.account_action)
         return result
 
+    def sync_account_list(
+        self,
+        *,
+        name: str,
+        account_ids: list[str],
+        dry_run: bool | None = None,
+    ) -> dict[str, object]:
+        dry_run_enabled = self.settings.effective_dry_run(dry_run)
+        unique_account_ids = unique_strings(account_ids)
+        if dry_run_enabled:
+            return {
+                "mode": "dry_run",
+                "list_id": f"dryrun-list-{stable_hash(name, length=10)}",
+                "list_name": name,
+                "list_action": "create_or_update",
+                "account_ids": unique_account_ids,
+            }
+
+        existing_list = self._find_account_list_by_name(name)
+        if existing_list:
+            response = self.client.update_list(
+                list_id=existing_list["id"],
+                relationships={"$accounts": {"add": unique_account_ids}},
+                idempotency_key=stable_hash("list-update", name, *unique_account_ids),
+            )
+            action = "updated"
+        else:
+            response = self.client.create_list(
+                name=name,
+                object_type="account",
+                relationships={"$accounts": unique_account_ids},
+                idempotency_key=stable_hash("list-create", name),
+            )
+            action = "created"
+
+        return {
+            "mode": "live",
+            "list_id": response.get("id"),
+            "list_name": name,
+            "list_action": action,
+            "http_link": response.get("httpLink"),
+            "account_ids": unique_account_ids,
+        }
+
     def _find_account(self, profile: ProspectProfile, external_key: str) -> dict[str, str] | None:
         local_match = self.store.get_account_by_external_key(external_key)
         if local_match:
@@ -117,6 +160,26 @@ class LightfieldSyncService:
                 return remote_match
 
         return self.client.find_account_by_field(field_key="$name", value=profile.company_name)
+
+    def _find_account_list_by_name(self, name: str) -> dict[str, str] | None:
+        offset = 0
+        while True:
+            response = self.client.list_lists(limit=25, offset=offset)
+            records = response.get("data") or []
+            for record in records:
+                fields = record.get("fields") or {}
+                list_name = self._field_value(fields.get("$name"))
+                object_type = self._field_value(fields.get("$objectType"))
+                if list_name == name and object_type == "account":
+                    return record
+            if len(records) < 25:
+                return None
+            offset += 25
+
+    def _field_value(self, field: object) -> object:
+        if isinstance(field, dict) and "value" in field:
+            return field.get("value")
+        return field
 
     def _sync_contact(
         self,
@@ -201,10 +264,6 @@ class LightfieldSyncService:
 
         if profile.website:
             fields["$website"] = unique_strings([profile.website])
-        linked_in = linkedin_handle(profile.linkedin_company_url)
-        if linked_in:
-            fields["$linkedIn"] = linked_in
-
         self._assign_account_custom_field(
             fields,
             self.settings.lightfield_account_external_key_field,

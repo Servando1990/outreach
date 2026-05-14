@@ -33,7 +33,14 @@ class LightfieldClient:
                 headers=self._headers(idempotency_key=idempotency_key),
                 **kwargs,
             )
-            response.raise_for_status()
+            try:
+                response.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                raise httpx.HTTPStatusError(
+                    f"{exc} Response body: {response.text}",
+                    request=exc.request,
+                    response=exc.response,
+                ) from exc
             if not response.content:
                 return None
             return response.json()
@@ -106,6 +113,48 @@ class LightfieldClient:
         response = self.list_accounts(filters={field_key: (value, operator)}, limit=1)
         records = response.get("data") or []
         return records[0] if records else None
+
+    def list_lists(self, *, limit: int = 25, offset: int = 0) -> dict[str, Any]:
+        params: dict[str, int] = {"limit": min(limit, 25), "offset": offset}
+        return self._request("GET", "/v1/lists", params=params)
+
+    def create_list(
+        self,
+        *,
+        name: str,
+        object_type: str,
+        relationships: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {"fields": {"$name": name, "$objectType": object_type}}
+        if relationships:
+            payload["relationships"] = relationships
+        return self._request(
+            "POST",
+            "/v1/lists",
+            json=payload,
+            idempotency_key=idempotency_key,
+        )
+
+    def update_list(
+        self,
+        *,
+        list_id: str,
+        fields: dict[str, Any] | None = None,
+        relationships: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        if fields:
+            payload["fields"] = fields
+        if relationships:
+            payload["relationships"] = relationships
+        return self._request(
+            "POST",
+            f"/v1/lists/{list_id}",
+            json=payload,
+            idempotency_key=idempotency_key,
+        )
 
     def find_contact_by_field(
         self,
