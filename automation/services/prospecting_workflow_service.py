@@ -243,7 +243,7 @@ class ProspectingWorkflowService:
 
     def research_candidate(self, *, config: ProspectingListConfig, candidate: dict[str, Any]) -> ProspectResearchProfile:
         name = candidate.get("name") or "Unknown company"
-        candidate_url = candidate.get("url")
+        candidate_url = candidate.get("url") or self._url_from_candidate_name(candidate)
         candidate_website = self._candidate_website_url(candidate)
         website_domain = extract_domain(candidate_website)
         search_queries = [
@@ -278,6 +278,7 @@ class ProspectingWorkflowService:
                 "active status, and named decision makers/Principals/Managers/technology leaders with emails and LinkedIn URLs."
             ),
             session_id=search.get("session_id"),
+            max_chars_total=9000,
         )
         prompt = self._research_prompt(
             config=config,
@@ -468,13 +469,13 @@ Rules:
 - Assign role_priority where lower is better: Founder/Managing Partner/Partner=10-20, Principal=30, Managing Director/Director=35-45, Manager=55, tech leader=60-70.
 
 Candidate:
-{json.dumps(candidate, ensure_ascii=True, indent=2)}
+{json.dumps(self._compact_candidate(candidate), ensure_ascii=True, indent=2)}
 
 Search evidence:
-{json.dumps(search, ensure_ascii=True, indent=2)[:24000]}
+{json.dumps(search, ensure_ascii=True, indent=2)[:6000]}
 
 Extracted page evidence:
-{json.dumps(extract, ensure_ascii=True, indent=2)[:32000]}
+{json.dumps(extract, ensure_ascii=True, indent=2)[:9000]}
         """.strip()
 
     def _candidate_urls(self, candidate_url: str | None, search: dict[str, Any]) -> list[str]:
@@ -499,7 +500,24 @@ Extracted page evidence:
         domain = extract_domain(url)
         if domain and not domain.endswith("linkedin.com"):
             return url
+        name_url = self._url_from_candidate_name(candidate)
+        if name_url:
+            return name_url
         return None
+
+    def _url_from_candidate_name(self, candidate: dict[str, Any]) -> str | None:
+        name = str(candidate.get("name") or "").strip()
+        if re.match(r"^https?://", name, flags=re.IGNORECASE):
+            return name
+        return None
+
+    def _compact_candidate(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "name": candidate.get("name"),
+            "url": candidate.get("url") or self._url_from_candidate_name(candidate),
+            "website": self._candidate_website_url(candidate),
+            "description": str(candidate.get("description") or "")[:1200],
+        }
 
     def _compact_search(self, search: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -509,9 +527,9 @@ Extracted page evidence:
                 {
                     "title": result.get("title"),
                     "url": result.get("url"),
-                    "excerpts": self._truncate_list(result.get("excerpts") or [], limit=2, chars=700),
+                    "excerpts": self._truncate_list(result.get("excerpts") or [], limit=1, chars=450),
                 }
-                for result in (search.get("results") or [])[:8]
+                for result in (search.get("results") or [])[:6]
             ],
         }
 
@@ -521,9 +539,9 @@ Extracted page evidence:
                 {
                     "title": result.get("title"),
                     "url": result.get("url"),
-                    "excerpts": self._truncate_list(result.get("excerpts") or [], limit=3, chars=900),
+                    "excerpts": self._truncate_list(result.get("excerpts") or [], limit=2, chars=550),
                 }
-                for result in (extract.get("results") or [])[:8]
+                for result in (extract.get("results") or [])[:6]
             ],
             "errors": [
                 {
@@ -547,6 +565,8 @@ Extracted page evidence:
             str(candidate.get(key) or "")
             for key in ("name", "description", "url")
         ).lower()
+        if self._url_from_candidate_name(candidate) and not str(candidate.get("description") or "").strip():
+            return None
         strong_match = self._keyword_match(text, config.required_keywords)
         contextual_match = self._contextual_placement_signal_match(text, config)
         excluded_match = self._keyword_match(text, config.excluded_keywords)
